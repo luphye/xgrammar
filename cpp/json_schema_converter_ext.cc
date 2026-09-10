@@ -245,7 +245,19 @@ int32_t XMLToolCallingConverter::FormatProperty(
     } else {
       elements.push_back(WhitespaceExpression());
       elements.push_back(RuleRef(value_rule_id));
-      elements.push_back(WhitespaceExpression());
+      // Check if the value is a bounded repeat (e.g., a string with maxLength). The content of
+      // such a string is [\0-\U0010ffff]{min, max} which already matches whitespace. The trailing
+      // WhitespaceExpression() is therefore redundant, and keeping it lets the model loop on
+      // whitespace tokens after the content reaches maxLength (the separator accepts unlimited
+      // whitespace while the repeat is blocked). Omit the trailing whitespace for bounded repeats
+      // so that after maxLength only the closing tag is accepted.
+      const auto& value_rule = builder_.GetRule(value_rule_id);
+      const auto& value_body = builder_.GetGrammarExpr(value_rule.body_expr_id);
+      bool is_bounded_repeat = value_body.type == GrammarBuilder::GrammarExprType::kRepeat &&
+                               value_body.size() >= 3 && value_body[2] != -1;
+      if (!is_bounded_repeat) {
+        elements.push_back(WhitespaceExpression());
+      }
     }
     elements.push_back(ByteString(xml_wrapper_.parameter_suffix));
     return Sequence(elements);
@@ -272,7 +284,15 @@ int32_t XMLToolCallingConverter::FormatOtherProperty(
     } else {
       elements.push_back(WhitespaceExpression());
       elements.push_back(RuleRef(value_rule_id));
-      elements.push_back(WhitespaceExpression());
+      // See FormatProperty for why bounded repeats (strings with maxLength) omit the
+      // trailing WhitespaceExpression.
+      const auto& value_rule = builder_.GetRule(value_rule_id);
+      const auto& value_body = builder_.GetGrammarExpr(value_rule.body_expr_id);
+      bool is_bounded_repeat = value_body.type == GrammarBuilder::GrammarExprType::kRepeat &&
+                               value_body.size() >= 3 && value_body[2] != -1;
+      if (!is_bounded_repeat) {
+        elements.push_back(WhitespaceExpression());
+      }
     }
     elements.push_back(ByteString(xml_wrapper_.parameter_suffix));
     return Sequence(elements);

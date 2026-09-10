@@ -1339,6 +1339,21 @@ GrammarMatcher::Impl::GetCharacterClassRepeat(const ParserState& state) const {
             repeat.Upper() == -1 || remaining >= max_token_characters
         };
       }
+      // When the repeat has reached its upper bound (remaining <= 0), return a repeat with
+      // max_characters = 0 so the caller obtains a mask whose accepted_prefix_tokens and
+      // accepted_indices are empty. This forces content tokens (e.g., "</parameter>" in XML
+      // format, where [^] matches every byte) through the speculative trie walk, where
+      // Advance rejects them because the kRepeatRef edge is blocked. Without this, the caller
+      // falls back to the context-independent cached AdaptiveTokenMask (computed with
+      // repeat_count = 0), which accepts every content token unconditionally.
+      return CharacterClassRepeat{
+          sequence[0],
+          0,
+          parent,
+          repeat.Lower(),
+          edge.target,
+          false,
+      };
     }
   }
   return std::nullopt;

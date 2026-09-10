@@ -1937,7 +1937,22 @@ Result<int, ISTError> StructuralTagGrammarConverter::VisitSub(const AnyTextForma
 Result<int, ISTError> StructuralTagGrammarConverter::VisitSub(const SequenceFormat& format) {
   std::vector<int> rule_ref_ids;
   rule_ref_ids.reserve(format.elements.size());
-  for (const auto& element : format.elements) {
+  for (int i = 0; i < static_cast<int>(format.elements.size()); ++i) {
+    const auto& element = format.elements[i];
+    // When an any_text element is followed by a triggered_tags (or token_triggered_tags)
+    // element, the any_text is redundant: the TagDispatch in triggered_tags already
+    // accepts arbitrary text between dispatches via its Aho-Corasick back edges. Keeping
+    // the any_text as a separate sequence element creates a competing Earley derivation
+    // that matches tag-content bytes via the unbounded any_text rule, bypassing the
+    // maxLength (or other) constraints inside the tag content. Skip the redundant any_text.
+    if (std::holds_alternative<AnyTextFormat>(element) && i + 1 < static_cast<int>(format.elements.size())) {
+      const auto& next = format.elements[i + 1];
+      if (std::holds_alternative<TriggeredTagsFormat>(next) ||
+          std::holds_alternative<TokenTriggeredTagsFormat>(next)) {
+        continue;
+      }
+    }
+
     auto result = Visit(element);
     if (result.IsErr()) {
       return result;
