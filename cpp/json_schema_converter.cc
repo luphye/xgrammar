@@ -1248,8 +1248,10 @@ Result<SchemaSpecPtr, SchemaError> SchemaParser::Parse(
   //   {K..., anyOf: [B1..Bn]}  ->  {anyOf: [merge(K,B1) .. merge(K,Bn)]}
   //     (sound by distributivity of conjunction over disjunction; same for oneOf)
   //   {K..., allOf: [B1..Bn]}  ->  merge(K, B1, .., Bn)
-  // and fail with kUnsupportedSchema when an equivalent merge cannot be constructed, rather
-  // than dropping constraints.
+  // When an equivalent merge cannot be constructed (e.g. $ref beside siblings,
+  // the same structural keyword on both sides, or conflicting values for the
+  // same constraint keyword), fall back to the existing combinator dispatch
+  // path instead of failing, so previously-accepted schemas keep working.
   if (schema_obj.count("anyOf") || schema_obj.count("oneOf") || schema_obj.count("allOf")) {
     // Non-annotation keywords beside the primary combinator (may include other combinators;
     // those are desugared recursively).
@@ -1292,10 +1294,11 @@ Result<SchemaSpecPtr, SchemaError> SchemaParser::Parse(
         }
         auto merge_result = MergeConjunctiveSchemaObjects(fused, branch.get<picojson::object>());
         if (merge_result.IsErr()) {
-          if (!siblings.empty()) {
-            return ResultErr(std::move(merge_result).UnwrapErr());
-          }
-          fused_ok = false;  // pure allOf: fall back to the existing ParseAllOf path
+          // Merge cannot be constructed (e.g. conflicting values for the same
+          // keyword, $ref beside siblings, structural keywords on both sides).
+          // Fall back to the existing ParseAllOf path instead of failing loudly,
+          // so previously-accepted schemas keep working.
+          fused_ok = false;
           break;
         }
         fused = std::move(merge_result).Unwrap();
@@ -1328,7 +1331,10 @@ Result<SchemaSpecPtr, SchemaError> SchemaParser::Parse(
         auto merge_result =
             MergeConjunctiveSchemaObjects(siblings, branch.get<picojson::object>());
         if (merge_result.IsErr()) {
-          return ResultErr(std::move(merge_result).UnwrapErr());
+          // Merge cannot be constructed; fall back to the existing anyOf/oneOf
+          // dispatch path instead of failing loudly.
+          distributed_ok = false;
+          break;
         }
         merged_branches.push_back(picojson::value(std::move(merge_result).Unwrap()));
       }
